@@ -38,7 +38,7 @@ fun ShaghlaApp() {
     var baseUrl by remember { mutableStateOf(prefs.getString("api_url", "") ?: "") }
     var token by remember { mutableStateOf(prefs.getString("token", "") ?: "") }
     var role by remember { mutableStateOf(prefs.getString("role", "worker") ?: "worker") }
-    var phone by remember { mutableStateOf("") }
+    var phone by remember { mutableStateOf(prefs.getString("phone", "") ?: "") }
     var otp by remember { mutableStateOf("") }
     var query by remember { mutableStateOf("") }
     var tab by remember { mutableStateOf("الوظائف") }
@@ -145,7 +145,7 @@ fun ShaghlaApp() {
                                         runTask {
                                             val result = api.verifyOtp(phone, otp)
                                             token = result.first
-                                            prefs.edit().putString("token", token).putString("role", role).apply()
+                                            prefs.edit().putString("token", token).putString("role", role).putString("phone", phone).apply()
                                             requested = false
                                             message = "تم تسجيل الدخول بنجاح"
                                             jobs = api.jobs()
@@ -226,7 +226,7 @@ fun ShaghlaApp() {
                                 Text("رقم الهاتف: $phone")
                                 OutlinedButton(
                                     onClick = {
-                                        token = ""; prefs.edit().remove("token").apply()
+                                        token = ""; prefs.edit().remove("token").remove("phone").apply(); phone = ""
                                         requested = false; otp = ""; jobs = emptyList()
                                         message = "تم تسجيل الخروج"
                                     },
