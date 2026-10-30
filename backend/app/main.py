@@ -316,7 +316,7 @@ def list_jobs(
     min_wage: int | None = Query(default=None, ge=0),
     max_wage: int | None = Query(default=None, ge=0),
     skip: int = Query(default=0, ge=0),
-    limit: int = Query(default=0, ge=1, le=100),
+    limit: int = Query(default=20, ge=1, le=100),
 ):
     if min_wage is not None and max_wage is not None and min_wage > max_wage:
         raise HTTPException(422, "الحد الأدنى للأجر أكبر من الحد الأعلى")
@@ -340,7 +340,7 @@ def list_jobs(
             query = query.filter(Job.wage_iqd >= min_wage)
         if max_wage is not None:
             query = query.filter(Job.wage_iqd <= max_wage)
-        rows = query.order_by(Job.created_at.desc()).offset(skip).limit(limit or 20).all()
+        rows = query.order_by(Job.created_at.desc()).offset(skip).limit(limit).all()
         return [job_dict(job) for job in rows]
 
 
