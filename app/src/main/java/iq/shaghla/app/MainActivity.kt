@@ -46,6 +46,10 @@ fun ShaghlaApp() {
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf("") }
     var jobs by remember { mutableStateOf<List<ApiJob>>(emptyList()) }
+    var myJobs by remember { mutableStateOf<List<ApiJob>>(emptyList()) }
+    var myApplications by remember { mutableStateOf<List<ApiApplication>>(emptyList()) }
+    var applicants by remember { mutableStateOf<List<ApiApplication>>(emptyList()) }
+    var selectedEmployerJob by remember { mutableStateOf<Int?>(null) }
     var title by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
     var category by remember { mutableStateOf("أخرى") }
@@ -75,10 +79,10 @@ fun ShaghlaApp() {
                 bottomBar = {
                     if (token.isNotBlank()) {
                         NavigationBar(containerColor = Color.White) {
-                            listOf("الوظائف", "نشر وظيفة", "حسابي").forEach { item ->
+                            listOf("الوظائف", if (role == "worker") "طلباتي" else "إعلاناتي", "نشر وظيفة", "حسابي").forEach { item ->
                                 NavigationBarItem(
                                     selected = tab == item,
-                                    onClick = { tab = item; if (item == "الوظائف") loadJobs() },
+                                    onClick = { tab = item; when (item) { "الوظائف" -> loadJobs(); "طلباتي" -> runTask { myApplications = api.myApplications() }; "إعلاناتي" -> runTask { myJobs = api.myJobs(); selectedEmployerJob = null; applicants = emptyList() } } },
                                     icon = {},
                                     label = { Text(item) }
                                 )
@@ -160,6 +164,73 @@ fun ShaghlaApp() {
                         }
                     } else {
                         when (tab) {
+                            "طلباتي" -> {
+                                item {
+                                    Text("طلبات التقديم", color = Forest, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                                    Button(onClick = { runTask { myApplications = api.myApplications() } }, enabled = !busy) {
+                                        Text("تحديث طلباتي")
+                                    }
+                                }
+                                if (myApplications.isEmpty()) item { Text("ما عندك طلبات تقديم حالياً.") }
+                                items(myApplications, key = { it.id }) { application ->
+                                    Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+                                        Column(Modifier.padding(14.dp)) {
+                                            Text("طلب رقم #${application.id}", fontWeight = FontWeight.Bold, color = Forest)
+                                            Text("رقم الوظيفة: #${application.jobId}")
+                                            Text("الحالة: ${application.status}")
+                                        }
+                                    }
+                                }
+                            }
+                            "إعلاناتي" -> {
+                                item {
+                                    Text("وظائفي المنشورة", color = Forest, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                                    Button(onClick = { runTask { myJobs = api.myJobs() } }, enabled = !busy) { Text("تحديث الإعلانات") }
+                                }
+                                if (myJobs.isEmpty()) item { Text("ما ناشر وظائف لحد الآن.") }
+                                items(myJobs, key = { it.id }) { job ->
+                                    Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+                                        Column(Modifier.padding(14.dp)) {
+                                            Text(job.title, color = Forest, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                                            Text("رقم الإعلان: #${job.id} • ${job.governorate} / ${job.area}")
+                                            Button(onClick = {
+                                                selectedEmployerJob = job.id
+                                                runTask { applicants = api.applicants(job.id) }
+                                            }, enabled = !busy) { Text("عرض المتقدمين") }
+                                        }
+                                    }
+                                }
+                                if (selectedEmployerJob != null) {
+                                    item {
+                                        Text("المتقدمون على الإعلان #${selectedEmployerJob}", color = Forest, fontWeight = FontWeight.Bold)
+                                        if (applicants.isEmpty()) Text("ماكو متقدمين على هذا الإعلان حالياً.")
+                                    }
+                                    items(applicants, key = { it.id }) { applicant ->
+                                        Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+                                            Column(Modifier.padding(14.dp)) {
+                                                Text("طلب #${applicant.id} • عامل رقم #${applicant.jobId}")
+                                                Text("الحالة: ${applicant.status}")
+                                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                    Button(onClick = {
+                                                        runTask {
+                                                            api.setApplicationStatus(applicant.id, "مقبول")
+                                                            applicants = api.applicants(selectedEmployerJob!!)
+                                                            message = "تم قبول الطلب"
+                                                        }
+                                                    }, enabled = !busy) { Text("قبول") }
+                                                    OutlinedButton(onClick = {
+                                                        runTask {
+                                                            api.setApplicationStatus(applicant.id, "مرفوض")
+                                                            applicants = api.applicants(selectedEmployerJob!!)
+                                                            message = "تم تحديث حالة الطلب"
+                                                        }
+                                                    }, enabled = !busy) { Text("رفض") }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                             "الوظائف" -> {
                                 item {
                                     Text("اكتشف فرص العمل", color = Forest, fontSize = 22.sp, fontWeight = FontWeight.Bold)
