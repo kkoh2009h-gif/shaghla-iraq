@@ -7,6 +7,8 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 
+data class ApiApplication(val id: Int, val jobId: Int, val status: String)
+
 data class ApiJob(
     val id: Int,
     val title: String,
@@ -71,6 +73,37 @@ class ShaghlaApi(private val baseUrl: String, private val token: String? = null)
                 item.optInt("wage_iqd"), item.optString("work_type")
             )
         }
+    }
+
+    suspend fun myJobs(): List<ApiJob> {
+        val array = JSONArray(request("/employer/jobs"))
+        return (0 until array.length()).map { index ->
+            val item = array.getJSONObject(index)
+            ApiJob(item.getInt("id"), item.optString("title"), item.optString("description"),
+                item.optString("category"), item.optString("governorate"), item.optString("area"),
+                item.optInt("wage_iqd"), item.optString("work_type"))
+        }
+    }
+
+    suspend fun myApplications(): List<ApiApplication> {
+        val array = JSONArray(request("/worker/applications"))
+        return (0 until array.length()).map { index ->
+            val item = array.getJSONObject(index)
+            ApiApplication(item.getInt("id"), item.getInt("job_id"), item.optString("status"))
+        }
+    }
+
+    suspend fun applicants(jobId: Int): List<ApiApplication> {
+        val array = JSONArray(request("/employer/jobs/$jobId/applications"))
+        return (0 until array.length()).map { index ->
+            val item = array.getJSONObject(index)
+            ApiApplication(item.getInt("id"), item.getInt("worker_id"), item.optString("status"))
+        }
+    }
+
+    suspend fun setApplicationStatus(applicationId: Int, status: String) {
+        request("/employer/applications/$applicationId/status", "PATCH",
+            JSONObject().put("status", status))
     }
 
     suspend fun apply(jobId: Int) {
