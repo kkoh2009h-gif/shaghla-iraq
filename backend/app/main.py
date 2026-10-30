@@ -84,7 +84,7 @@ class Application(Base):
 Base.metadata.create_all(engine)
 app = FastAPI(
     title="Shaghla Iraq API",
-    version="0.3.0",
+    version="0.4.0",
     description="واجهة API لمنصة شَغلة العراقية",
 )
 
@@ -101,6 +101,10 @@ class OTPVerify(BaseModel):
 
 class ProfileUpdate(BaseModel):
     full_name: str = Field(min_length=2, max_length=120)
+
+
+class ApplicationStatusUpdate(BaseModel):
+    status: Literal["قيد المراجعة", "مقبول", "مرفوض"]
 
 
 class JobIn(BaseModel):
@@ -394,3 +398,50 @@ def worker_applications(user: dict = Depends(require_role("worker"))):
             {"id": item.id, "job_id": item.job_id, "status": item.status, "created_at": item.created_at.isoformat()}
             for item in rows
         ]
+
+
+@app.get("/employer/jobs/{job_id}/applications")
+def employer_job_applications(job_id: int, user: dict = Depends(require_role("employer"))):
+    with Session() as db:
+        job = db.query(Job).filter_by(id=job_id, employer_id=user["id"]).first()
+        if not job:
+            raise HTTPException(404, "الوظيفة غير موجودة")
+        rows = db.query(Application).filter_by(job_id=job_id).order_by(Application.created_at.desc()).all()
+        return [
+            {"id": item.id, "job_id": item.job_id, "worker_id": item.worker_id,
+             "status": item.status, "created_at": item.created_at.isoformat()}
+            for item in rows
+        ]
+
+
+@app.patch("/employer/applications/{application_id}/status")
+def update_application_status(
+    application_id: int,
+    data: ApplicationStatusUpdate,
+    user: dict = Depends(require_role("employer")),
+):
+    with Session() as db:
+        item = db.get(Application, application_id)
+        if not item:
+            raise HTTPException(404, "طلب التقديم غير موجود")
+        job = db.query(Job).filter_by(id=item.job_id, employer_id=user["id"]).first()
+        if not job:
+            raise HTTPException(404, "طلب التقديم غير موجود")
+        item.status = data.status
+        db.commit()
+        return {"id": item.id, "status": item.status}
+
+
+@app.patch("/employer/jobs/{job_id}/status")
+def update_job_status(
+    job_id: int,
+    status: Literal["نشطة", "مغلقة"],
+    user: dict = Depends(require_role("employer")),
+):
+    with Session() as db:
+        job = db.query(Job).filter_by(id=job_id, employer_id=user["id"]).first()
+        if not job:
+            raise HTTPException(404, "الوظيفة غير موجودة")
+        job.status = status
+        db.commit()
+        return {"id": job.id, "status": job.status}
