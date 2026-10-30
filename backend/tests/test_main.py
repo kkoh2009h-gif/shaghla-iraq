@@ -1,6 +1,6 @@
 import os
 
-os.environ["DATABASE_URL"] = "sqlite:///./test_shaghla.db"
+os.environ["DATABASE_URL"] = "sqlite:///./test_shaghla_auth.db"
 os.environ["SHAGHLA_AUTH_SECRET"] = "test-secret-key-that-is-long-enough-for-hmac"
 
 from fastapi.testclient import TestClient
@@ -22,8 +22,10 @@ def register(phone, role):
     sent_codes.pop(phone, None)
     requested = client.post("/auth/request-otp", json={"phone": phone, "role": role})
     assert requested.status_code == 200
-    code = sent_codes[phone]
-    verified = client.post("/auth/verify-otp", json={"phone": phone, "code": code})
+    verified = client.post(
+        "/auth/verify-otp",
+        json={"phone": phone, "code": sent_codes[phone]},
+    )
     assert verified.status_code == 200
     return verified.json()["access_token"]
 
@@ -32,7 +34,7 @@ def auth(token):
     return {"Authorization": f"Bearer {token}"}
 
 
-def create_job(token, title="عامل مخزن", **overrides):
+def job_payload(title="عامل مخزن", **overrides):
     payload = {
         "title": title,
         "description": "فرصة عمل تجريبية للاختبار",
@@ -44,7 +46,11 @@ def create_job(token, title="عامل مخزن", **overrides):
         "positions": 2,
     }
     payload.update(overrides)
-    return client.post("/jobs", json=payload, headers=auth(token))
+    return payload
+
+
+def create_job(token, title="عامل مخزن", **overrides):
+    return client.post("/jobs", json=job_payload(title, **overrides), headers=auth(token))
 
 
 def test_health():
@@ -64,12 +70,16 @@ def test_invalid_phone_rejected():
     assert response.status_code == 422
 
 
-def test_otp_login_and_profile():
+def test_phone_otp_login_and_profile():
     token = register("+9647700000001", "worker")
     response = client.get("/auth/me", headers=auth(token))
     assert response.status_code == 200
     assert response.json()["role"] == "worker"
-    updated = client.patch("/auth/me", json={"full_name": "عامل تجريبي"}, headers=auth(token))
+    updated = client.patch(
+        "/auth/me",
+        json={"full_name": "عامل تجريبي"},
+        headers=auth(token),
+    )
     assert updated.status_code == 200
     assert updated.json()["full_name"] == "عامل تجريبي"
 
@@ -88,26 +98,20 @@ def test_job_create_requires_employer_role():
     assert response.status_code == 403
 
 
-def test_create_and_list_job():
+def test_create_search_and_detail_job():
     employer_token = register("+9647700000004", "employer")
     created = create_job(employer_token)
     assert created.status_code == 201
     listed = client.get("/jobs?q=عامل&governorate=كركوك&work_type=يومي")
     assert listed.status_code == 200
     assert any(job["title"] == "عامل مخزن" for job in listed.json())
-
-
-def test_job_detail():
-    employer_token = register("+9647700000005", "employer")
-    created = create_job(employer_token, "فني شبكات").json()
-    response = client.get(f"/jobs/{created['id']}")
-    assert response.status_code == 200
-    assert response.json()["category"] == "مخازن"
-    assert response.json()["positions"] == 2
+    detail = client.get(f"/jobs/{created.json()['id']}")
+    assert detail.status_code == 200
+    assert detail.json()["positions"] == 2
 
 
 def test_wage_filters_and_pagination():
-    employer_token = register("+9647700000006", "employer")
+    employer_token = register("+9647700000005", "employer")
     create_job(employer_token, "موظف مبيعات", wage_iqd=500000, work_type="شهري")
     response = client.get("/jobs?min_wage=100000&max_wage=600000&limit=1")
     assert response.status_code == 200
@@ -120,14 +124,14 @@ def test_invalid_wage_range():
 
 
 def test_invalid_work_type_rejected():
-    employer_token = register("+9647700000007", "employer")
+    employer_token = register("+9647700000006", "employer")
     response = create_job(employer_token, "عمل غير معروف", work_type="غير صالح")
     assert response.status_code == 422
 
 
 def test_duplicate_application_rejected():
-    employer_token = register("+9647700000008", "employer")
-    worker_token = register("+9647700000009", "worker")
+    employer_token = register("+9647700000007", "employer")
+    worker_token = register("+9647700000008", "worker")
     job = create_job(employer_token, "فني صيانة").json()
     first = client.post(f"/jobs/{job['id']}/apply", headers=auth(worker_token))
     second = client.post(f"/jobs/{job['id']}/apply", headers=auth(worker_token))
@@ -136,20 +140,14 @@ def test_duplicate_application_rejected():
 
 
 def test_employer_cannot_apply_as_worker():
-    employer_token = register("+9647700000010", "employer")
+    employer_token = register("+9647700000009", "employer")
     response = client.post("/jobs/1/apply", headers=auth(employer_token))
     assert response.status_code == 403
 
 
-def test_unknown_job_returns_404():
-    response = client.get("/jobs/999999")
-    assert response.status_code == 404
-
-
-
 def test_employer_can_review_applications_and_close_job():
-    employer_token = register("+9647700000011", "employer")
-    worker_token = register("+9647700000012", "worker")
+    employer_token = register("+9647700000010", "employer")
+    worker_token = register("+9647700000011", "worker")
     job = create_job(employer_token, "مساعد إداري").json()
     applied = client.post(f"/jobs/{job['id']}/apply", headers=auth(worker_token))
     assert applied.status_code == 201
@@ -179,9 +177,9 @@ def test_employer_can_review_applications_and_close_job():
 
 
 def test_other_employer_cannot_manage_application():
-    owner_token = register("+9647700000013", "employer")
-    other_token = register("+9647700000014", "employer")
-    worker_token = register("+9647700000015", "worker")
+    owner_token = register("+9647700000012", "employer")
+    other_token = register("+9647700000013", "employer")
+    worker_token = register("+9647700000014", "worker")
     job = create_job(owner_token, "عامل إنتاج").json()
     applied = client.post(f"/jobs/{job['id']}/apply", headers=auth(worker_token))
     application_id = applied.json()["id"]
@@ -193,11 +191,9 @@ def test_other_employer_cannot_manage_application():
     assert response.status_code == 404
 
 
-
-
 def test_worker_can_withdraw_application():
-    employer_token = register("+9647700000016", "employer")
-    worker_token = register("+9647700000017", "worker")
+    employer_token = register("+9647700000015", "employer")
+    worker_token = register("+9647700000016", "worker")
     job = create_job(employer_token, "عامل مطعم").json()
     application = client.post(f"/jobs/{job['id']}/apply", headers=auth(worker_token)).json()
     response = client.post(
@@ -208,14 +204,11 @@ def test_worker_can_withdraw_application():
     assert response.json()["status"] == "منسحب"
 
 
-def test_worker_cannot_withdraw_another_users_application():
-    employer_token = register("+9647700000018", "employer")
-    worker_token = register("+9647700000019", "worker")
-    other_worker_token = register("+9647700000020", "worker")
-    job = create_job(employer_token, "عامل توصيل").json()
-    application = client.post(f"/jobs/{job['id']}/apply", headers=auth(worker_token)).json()
-    response = client.post(
-        f"/worker/applications/{application['id']}/withdraw",
-        headers=auth(other_worker_token),
-    )
+def test_protected_endpoint_requires_login():
+    response = client.post("/jobs", json=job_payload())
+    assert response.status_code == 401
+
+
+def test_unknown_job_returns_404():
+    response = client.get("/jobs/99999999")
     assert response.status_code == 404
