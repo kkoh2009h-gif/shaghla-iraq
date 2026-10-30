@@ -107,10 +107,6 @@ class ApplicationStatusUpdate(BaseModel):
     status: Literal["قيد المراجعة", "مقبول", "مرفوض"]
 
 
-class ApplicationStatusUpdate(BaseModel):
-    status: Literal["قيد المراجعة", "مقبول", "مرفوض"]
-
-
 class JobIn(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
@@ -449,38 +445,6 @@ def update_job_status(
         job.status = status
         db.commit()
         return {"id": job.id, "status": job.status}
-
-
-@app.get("/employer/jobs/{job_id}/applications")
-def employer_job_applications(job_id: int, user: dict = Depends(require_role("employer"))):
-    with Session() as db:
-        job = db.get(Job, job_id)
-        if not job or job.employer_id != user["id"]:
-            raise HTTPException(404, "الوظيفة غير موجودة")
-        rows = db.query(Application).filter_by(job_id=job_id).order_by(Application.created_at.desc()).all()
-        return [
-            {"id": item.id, "job_id": item.job_id, "worker_id": item.worker_id,
-             "status": item.status, "created_at": item.created_at.isoformat()}
-            for item in rows
-        ]
-
-
-@app.patch("/employer/applications/{application_id}")
-def employer_update_application(
-    application_id: int,
-    data: ApplicationStatusUpdate,
-    user: dict = Depends(require_role("employer")),
-):
-    with Session() as db:
-        item = db.get(Application, application_id)
-        if not item:
-            raise HTTPException(404, "طلب التقديم غير موجود")
-        job = db.get(Job, item.job_id)
-        if not job or job.employer_id != user["id"]:
-            raise HTTPException(404, "طلب التقديم غير موجود")
-        item.status = data.status
-        db.commit()
-        return {"id": item.id, "status": item.status}
 
 
 @app.post("/worker/applications/{application_id}/withdraw")
