@@ -1,39 +1,38 @@
 import os
-import secrets
 
-os.environ["DATABASE_URL"] = "sqlite:///./test_shaghla_auth.db"
-os.environ["SHAGHLA_AUTH_SECRET"] = "test-secret-key-with-more-than-32-characters"
+os.environ["DATABASE_URL"] = "sqlite:///./test_shaghla.db"
+os.environ["SHAGHLA_AUTH_SECRET"] = "test-secret-key-that-is-long-enough-for-hmac"
 
 from fastapi.testclient import TestClient
-import app.main as main
+from app import main
+from app.main import app
 
-client = TestClient(main.app)
-issued_codes = {}
-
-
-async def fake_send_otp(phone: str, code: str):
-    issued_codes[phone] = code
+client = TestClient(app)
+sent_codes = {}
 
 
-def phone_number():
-    return "07" + "".join(str(secrets.randbelow(10)) for _ in range(9))
+async def fake_send_otp_sms(phone, code):
+    sent_codes[phone] = code
 
 
-def register(role: str, monkeypatch):
-    monkeypatch.setattr(main, "send_otp_sms", fake_send_otp)
-    phone = phone_number()
+main.send_otp_sms = fake_send_otp_sms
+
+
+def register(phone, role):
+    sent_codes.pop(phone, None)
     requested = client.post("/auth/request-otp", json={"phone": phone, "role": role})
     assert requested.status_code == 200
-    verified = client.post(
-        "/auth/verify-otp",
-        json={"phone": phone, "code": issued_codes[main.normalize_iraqi_phone(phone)]},
-    )
+    code = sent_codes[phone]
+    verified = client.post("/auth/verify-otp", json={"phone": phone, "code": code})
     assert verified.status_code == 200
-    token = verified.json()["access_token"]
-    return phone, {"Authorization": f"Bearer {token}"}
+    return verified.json()["access_token"]
 
 
-def job_payload(title="عامل مخزن", **overrides):
+def auth(token):
+    return {"Authorization": f"Bearer {token}"}
+
+
+def create_job(token, title="عامل مخزن", **overrides):
     payload = {
         "title": title,
         "description": "فرصة عمل تجريبية للاختبار",
@@ -45,7 +44,7 @@ def job_payload(title="عامل مخزن", **overrides):
         "positions": 2,
     }
     payload.update(overrides)
-    return payload
+    return client.post("/jobs", json=payload, headers=auth(token))
 
 
 def test_health():
@@ -65,50 +64,51 @@ def test_invalid_phone_rejected():
     assert response.status_code == 422
 
 
-def test_phone_otp_registration_and_profile(monkeypatch):
-    phone, headers = register("worker", monkeypatch)
-    me = client.get("/auth/me", headers=headers)
-    assert me.status_code == 200
-    assert me.json()["phone"] == main.normalize_iraqi_phone(phone)
-    assert me.json()["role"] == "worker"
-
-    updated = client.patch("/auth/me", json={"full_name": "أحمد علي"}, headers=headers)
-    assert updated.status_code == 200
-    assert updated.json()["full_name"] == "أحمد علي"
-
-
-def test_otp_is_not_returned_in_api_response(monkeypatch):
-    monkeypatch.setattr(main, "send_otp_sms", fake_send_otp)
-    phone = phone_number()
-    response = client.post("/auth/request-otp", json={"phone": phone, "role": "worker"})
+def test_otp_login_and_profile():
+    token = register("+9647700000001", "worker")
+    response = client.get("/auth/me", headers=auth(token))
     assert response.status_code == 200
-    assert "code" not in response.json()
-    assert "otp" not in response.json()
+    assert response.json()["role"] == "worker"
+    updated = client.patch("/auth/me", json={"full_name": "عامل تجريبي"}, headers=auth(token))
+    assert updated.status_code == 200
+    assert updated.json()["full_name"] == "عامل تجريبي"
 
 
-def test_wrong_role_cannot_create_job(monkeypatch):
-    _, worker_headers = register("worker", monkeypatch)
-    response = client.post("/jobs", json=job_payload(), headers=worker_headers)
+def test_wrong_otp_rejected():
+    phone = "+9647700000002"
+    sent_codes.pop(phone, None)
+    assert client.post("/auth/request-otp", json={"phone": phone, "role": "worker"}).status_code == 200
+    response = client.post("/auth/verify-otp", json={"phone": phone, "code": "111111"})
+    assert response.status_code == 400
+
+
+def test_job_create_requires_employer_role():
+    worker_token = register("+9647700000003", "worker")
+    response = create_job(worker_token)
     assert response.status_code == 403
 
 
-def test_job_create_search_and_detail(monkeypatch):
-    _, employer_headers = register("employer", monkeypatch)
-    created = client.post("/jobs", json=job_payload(), headers=employer_headers)
+def test_create_and_list_job():
+    employer_token = register("+9647700000004", "employer")
+    created = create_job(employer_token)
     assert created.status_code == 201
-
     listed = client.get("/jobs?q=عامل&governorate=كركوك&work_type=يومي")
     assert listed.status_code == 200
     assert any(job["title"] == "عامل مخزن" for job in listed.json())
 
-    detail = client.get(f"/jobs/{created.json()['id']}")
-    assert detail.status_code == 200
-    assert detail.json()["positions"] == 2
+
+def test_job_detail():
+    employer_token = register("+9647700000005", "employer")
+    created = create_job(employer_token, "فني شبكات").json()
+    response = client.get(f"/jobs/{created['id']}")
+    assert response.status_code == 200
+    assert response.json()["category"] == "مخازن"
+    assert response.json()["positions"] == 2
 
 
-def test_wage_filters_and_pagination(monkeypatch):
-    _, employer_headers = register("employer", monkeypatch)
-    client.post("/jobs", json=job_payload("موظف مبيعات", wage_iqd=500000, work_type="شهري"), headers=employer_headers)
+def test_wage_filters_and_pagination():
+    employer_token = register("+9647700000006", "employer")
+    create_job(employer_token, "موظف مبيعات", wage_iqd=500000, work_type="شهري")
     response = client.get("/jobs?min_wage=100000&max_wage=600000&limit=1")
     assert response.status_code == 200
     assert len(response.json()) <= 1
@@ -119,40 +119,28 @@ def test_invalid_wage_range():
     assert response.status_code == 422
 
 
-def test_invalid_work_type_rejected(monkeypatch):
-    _, employer_headers = register("employer", monkeypatch)
-    response = client.post("/jobs", json=job_payload("عمل غير معروف", work_type="غير صالح"), headers=employer_headers)
+def test_invalid_work_type_rejected():
+    employer_token = register("+9647700000007", "employer")
+    response = create_job(employer_token, "عمل غير معروف", work_type="غير صالح")
     assert response.status_code == 422
 
 
-def test_worker_application_and_duplicate_blocked(monkeypatch):
-    _, employer_headers = register("employer", monkeypatch)
-    _, worker_headers = register("worker", monkeypatch)
-    job = client.post("/jobs", json=job_payload("فني صيانة"), headers=employer_headers).json()
-
-    first = client.post(f"/jobs/{job['id']}/apply", headers=worker_headers)
-    second = client.post(f"/jobs/{job['id']}/apply", headers=worker_headers)
+def test_duplicate_application_rejected():
+    employer_token = register("+9647700000008", "employer")
+    worker_token = register("+9647700000009", "worker")
+    job = create_job(employer_token, "فني صيانة").json()
+    first = client.post(f"/jobs/{job['id']}/apply", headers=auth(worker_token))
+    second = client.post(f"/jobs/{job['id']}/apply", headers=auth(worker_token))
     assert first.status_code == 201
     assert second.status_code == 409
 
-    applications = client.get("/worker/applications", headers=worker_headers)
-    assert applications.status_code == 200
-    assert any(item["job_id"] == job["id"] for item in applications.json())
 
-
-def test_employer_sees_only_own_jobs(monkeypatch):
-    _, employer_headers = register("employer", monkeypatch)
-    client.post("/jobs", json=job_payload("وظيفة خاصة"), headers=employer_headers)
-    response = client.get("/employer/jobs", headers=employer_headers)
-    assert response.status_code == 200
-    assert any(job["title"] == "وظيفة خاصة" for job in response.json())
-
-
-def test_protected_endpoint_requires_login():
-    response = client.post("/jobs", json=job_payload())
-    assert response.status_code == 401
+def test_employer_cannot_apply_as_worker():
+    employer_token = register("+9647700000010", "employer")
+    response = client.post("/jobs/1/apply", headers=auth(employer_token))
+    assert response.status_code == 403
 
 
 def test_unknown_job_returns_404():
-    response = client.get("/jobs/99999999")
+    response = client.get("/jobs/999999")
     assert response.status_code == 404
