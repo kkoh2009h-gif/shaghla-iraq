@@ -31,7 +31,7 @@
 - `POST /jobs`: يتطلب حساب صاحب عمل مسجل الدخول.
 - `GET /employer/jobs`: وظائف صاحب العمل الحالي فقط.
 - `POST /jobs/{id}/apply`: يتطلب حساب عامل مسجل الدخول.
-- `GET /worker/applications`: طلبات العامل الحالي.
+- `GET /worker/applications`: طلبات العامل الحالي.\n- `GET /employer/jobs/{id}/applications`: المتقدمون لوظيفة يملكها صاحب العمل.\n- `PATCH /employer/applications/{id}`: تحديث حالة الطلب إلى قيد المراجعة أو مقبول أو مرفوض.\n- `POST /worker/applications/{id}/withdraw`: سحب طلب العامل.\n- `POST /employer/jobs/{id}/close`: إغلاق وظيفة يملكها صاحب العمل.
 - معرّف صاحب العمل والعامل يؤخذ من الجلسة الموقعة، وليس من جسم الطلب.
 
 ## الاختبارات
