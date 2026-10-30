@@ -12,24 +12,17 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 
 private val Forest = Color(0xFF123B35)
 private val Lime = Color(0xFFD7F36A)
 private val Paper = Color(0xFFF5F7F4)
-
-data class Job(
-    val id: Int,
-    val title: String,
-    val company: String,
-    val area: String,
-    val pay: String,
-    val type: String
-)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -40,197 +33,211 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun ShaghlaApp() {
-    var tab by remember { mutableStateOf("الرئيسية") }
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("shaghla", 0) }
+    var baseUrl by remember { mutableStateOf(prefs.getString("api_url", "") ?: "") }
+    var token by remember { mutableStateOf(prefs.getString("token", "") ?: "") }
+    var role by remember { mutableStateOf(prefs.getString("role", "worker") ?: "worker") }
+    var phone by remember { mutableStateOf("") }
+    var otp by remember { mutableStateOf("") }
     var query by remember { mutableStateOf("") }
-    val savedJobs = remember { mutableStateListOf<Int>() }
-    val jobs = remember {
-        listOf(
-            Job(1, "عامل مخزن", "شركة تجارية", "كركوك - طريق بغداد", "25,000 د.ع / يوم", "يومي"),
-            Job(2, "موظف مبيعات", "متجر الرافدين", "كركوك - المركز", "500,000 د.ع / شهر", "شهري"),
-            Job(3, "فني صيانة حاسوب", "مركز تقني", "كركوك - شوراو", "حسب الاتفاق", "دوام جزئي")
-        )
+    var tab by remember { mutableStateOf("الوظائف") }
+    var requested by remember { mutableStateOf(false) }
+    var busy by remember { mutableStateOf(false) }
+    var message by remember { mutableStateOf("") }
+    var jobs by remember { mutableStateOf<List<ApiJob>>(emptyList()) }
+    var title by remember { mutableStateOf("") }
+    var description by remember { mutableStateOf("") }
+    var category by remember { mutableStateOf("أخرى") }
+    var area by remember { mutableStateOf("") }
+    var wage by remember { mutableStateOf("") }
+    val scope = rememberCoroutineScope()
+    val api = remember(baseUrl, token) { ShaghlaApi(baseUrl, token.takeIf { it.isNotBlank() }) }
+
+    fun runTask(task: suspend () -> Unit) {
+        scope.launch {
+            busy = true
+            message = ""
+            try { task() } catch (error: Exception) {
+                message = error.message ?: "صار خطأ، حاول مرة ثانية"
+            } finally { busy = false }
+        }
     }
-    val visibleJobs = jobs.filter { job ->
-        (tab != "المحفوظات" || savedJobs.contains(job.id)) &&
-            (query.isBlank() || job.title.contains(query, true) ||
-                job.company.contains(query, true) || job.area.contains(query, true))
+
+    fun loadJobs() {
+        runTask { jobs = api.jobs(query) }
     }
 
     CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
-        MaterialTheme {
+        MaterialTheme(colorScheme = lightColorScheme(primary = Forest, secondary = Lime)) {
             Scaffold(
                 containerColor = Paper,
                 bottomBar = {
-                    NavigationBar(containerColor = Color.White) {
-                        listOf("الرئيسية", "الوظائف", "المحفوظات", "حسابي").forEach { item ->
-                            NavigationBarItem(
-                                selected = tab == item,
-                                onClick = { tab = item },
-                                icon = {},
-                                label = { Text(item) }
-                            )
+                    if (token.isNotBlank()) {
+                        NavigationBar(containerColor = Color.White) {
+                            listOf("الوظائف", "نشر وظيفة", "حسابي").forEach { item ->
+                                NavigationBarItem(
+                                    selected = tab == item,
+                                    onClick = { tab = item; if (item == "الوظائف") loadJobs() },
+                                    icon = {},
+                                    label = { Text(item) }
+                                )
+                            }
                         }
                     }
                 }
             ) { padding ->
                 LazyColumn(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(padding)
-                        .padding(horizontal = 18.dp)
+                    modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 18.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     item {
                         Spacer(Modifier.height(18.dp))
                         Text("شَغلة", color = Forest, fontSize = 32.sp, fontWeight = FontWeight.Black)
                         Text("شغلك أقرب إلك.", color = Forest.copy(alpha = .7f))
-                        Spacer(Modifier.height(18.dp))
-
-                        if (tab == "الرئيسية" || tab == "الوظائف") {
-                            Card(
-                                colors = CardDefaults.cardColors(containerColor = Forest),
-                                shape = RoundedCornerShape(24.dp)
-                            ) {
-                                Column(Modifier.padding(20.dp)) {
-                                    Text(
-                                        "فرصتك الجاية تبدأ من هنا",
-                                        color = Lime,
-                                        fontSize = 23.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Text(
-                                        "منصة تجمع أصحاب العمل والباحثين عن عمل في العراق",
-                                        color = Color.White
-                                    )
-                                    Spacer(Modifier.height(16.dp))
-                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        Button(
-                                            onClick = { tab = "الوظائف" },
-                                            colors = ButtonDefaults.buttonColors(
-                                                containerColor = Lime,
-                                                contentColor = Forest
-                                            )
-                                        ) { Text("أريد شغل") }
-                                        OutlinedButton(
-                                            onClick = { tab = "حسابي" },
-                                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
-                                        ) { Text("أحتاج عمّال") }
-                                    }
-                                }
-                            }
-                            Spacer(Modifier.height(18.dp))
-                            OutlinedTextField(
-                                value = query,
-                                onValueChange = { query = it },
-                                modifier = Modifier.fillMaxWidth(),
-                                placeholder = { Text("ابحث عن وظيفة أو مهنة") },
-                                singleLine = true,
-                                shape = RoundedCornerShape(16.dp)
-                            )
-                        }
-
-                        Spacer(Modifier.height(18.dp))
-                        Text(
-                            when (tab) {
-                                "المحفوظات" -> "الوظائف المحفوظة"
-                                "حسابي" -> "حسابك في شَغلة"
-                                else -> if (tab == "الرئيسية") "أحدث فرص العمل" else "كل فرص العمل"
-                            },
-                            fontSize = 21.sp,
-                            color = Forest,
-                            fontWeight = FontWeight.Bold
-                        )
                         Spacer(Modifier.height(8.dp))
-
-                        if (tab == "حسابي") {
-                            Card(
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = CardDefaults.cardColors(containerColor = Color.White),
-                                shape = RoundedCornerShape(18.dp)
-                            ) {
-                                Column(Modifier.padding(18.dp)) {
-                                    Text("أهلاً بيك 👋", color = Forest, fontSize = 20.sp, fontWeight = FontWeight.Bold)
-                                    Text("ملفك الشخصي وتسجيل الدخول راح يتوفرون بالمرحلة القادمة.")
-                                    Spacer(Modifier.height(8.dp))
-                                    Text("حالياً هذا إصدار تجريبي للواجهة.", color = Color.Gray, fontSize = 12.sp)
-                                }
-                            }
+                        if (message.isNotBlank()) {
+                            Text(message, color = Color(0xFFB3261E), fontWeight = FontWeight.Medium)
                         }
+                        if (busy) LinearProgressIndicator(Modifier.fillMaxWidth(), color = Forest)
                     }
 
-                    if (tab != "حسابي") {
-                        if (visibleJobs.isEmpty()) {
-                            item {
-                                Text(
-                                    if (tab == "المحفوظات") "ما عندك وظائف محفوظة حالياً." else "ما لقينا وظائف تطابق بحثك.",
-                                    color = Color.Gray,
-                                    modifier = Modifier.padding(vertical = 18.dp)
-                                )
+                    if (token.isBlank()) {
+                        item {
+                            Text("خلّينا نوصلك بفرصة عمل", color = Forest, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                            Text("أدخل رابط خادم شَغلة المنشور عبر HTTPS.")
+                            OutlinedTextField(
+                                value = baseUrl, onValueChange = { baseUrl = it; prefs.edit().putString("api_url", it).apply() },
+                                modifier = Modifier.fillMaxWidth(), label = { Text("رابط API") },
+                                placeholder = { Text("https://api.example.com") }, singleLine = true
+                            )
+                            OutlinedTextField(
+                                value = phone, onValueChange = { phone = it },
+                                modifier = Modifier.fillMaxWidth(), label = { Text("رقم الهاتف العراقي") },
+                                placeholder = { Text("07xxxxxxxxx") }, singleLine = true
+                            )
+                            Text("نوع الحساب", color = Forest, fontWeight = FontWeight.Bold)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                FilterChip(selected = role == "worker", onClick = { role = "worker" }, label = { Text("باحث عن عمل") })
+                                Spacer(Modifier.width(8.dp))
+                                FilterChip(selected = role == "employer", onClick = { role = "employer" }, label = { Text("صاحب عمل") })
                             }
-                        } else {
-                            items(visibleJobs, key = { it.id }) { job ->
-                                Card(
-                                    modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
-                                    colors = CardDefaults.cardColors(containerColor = Color.White),
-                                    shape = RoundedCornerShape(18.dp)
-                                ) {
-                                    Column(Modifier.padding(16.dp)) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            modifier = Modifier.fillMaxWidth()
-                                        ) {
-                                            Text(
-                                                job.title,
-                                                color = Forest,
-                                                fontSize = 19.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                modifier = Modifier.weight(1f)
-                                            )
-                                            TextButton(onClick = {
-                                                if (savedJobs.contains(job.id)) savedJobs.remove(job.id)
-                                                else savedJobs.add(job.id)
-                                            }) {
-                                                Text(if (savedJobs.contains(job.id)) "♥ محفوظة" else "♡ حفظ", color = Forest)
+                            if (!requested) {
+                                Button(
+                                    onClick = {
+                                        runTask {
+                                            api.requestOtp(phone, role)
+                                            requested = true
+                                            message = "إذا كان الرقم صحيحاً، راح توصلك رسالة برمز التحقق."
+                                        }
+                                    },
+                                    enabled = !busy && baseUrl.isNotBlank() && phone.isNotBlank(),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) { Text("إرسال رمز التحقق") }
+                            } else {
+                                OutlinedTextField(
+                                    value = otp, onValueChange = { otp = it.filter(Char::isDigit).take(6) },
+                                    modifier = Modifier.fillMaxWidth(), label = { Text("رمز التحقق المكوّن من 6 أرقام") },
+                                    singleLine = true
+                                )
+                                Button(
+                                    onClick = {
+                                        runTask {
+                                            val result = api.verifyOtp(phone, otp)
+                                            token = result.first
+                                            prefs.edit().putString("token", token).putString("role", role).apply()
+                                            requested = false
+                                            message = "تم تسجيل الدخول بنجاح"
+                                            jobs = api.jobs()
+                                        }
+                                    },
+                                    enabled = !busy && otp.length == 6,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) { Text("تأكيد وتسجيل الدخول") }
+                                TextButton(onClick = { requested = false; otp = "" }) { Text("تغيير الرقم") }
+                            }
+                            Text("ملاحظة: تسجيل الدخول يحتاج خادماً منشوراً ومزود SMS فعلياً.", color = Color.Gray, fontSize = 12.sp)
+                        }
+                    } else {
+                        when (tab) {
+                            "الوظائف" -> {
+                                item {
+                                    Text("اكتشف فرص العمل", color = Forest, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                                    OutlinedTextField(
+                                        value = query, onValueChange = { query = it },
+                                        modifier = Modifier.fillMaxWidth(), label = { Text("ابحث عن وظيفة") },
+                                        singleLine = true
+                                    )
+                                    Button(onClick = { loadJobs() }, modifier = Modifier.fillMaxWidth(), enabled = !busy) {
+                                        Text("بحث وتحديث الوظائف")
+                                    }
+                                }
+                                if (jobs.isEmpty()) item { Text("ماكو وظائف معروضة حالياً. حدّث القائمة أو جرّب البحث.") }
+                                items(jobs, key = { it.id }) { job ->
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = CardDefaults.cardColors(containerColor = Color.White),
+                                        shape = RoundedCornerShape(18.dp)
+                                    ) {
+                                        Column(Modifier.padding(16.dp)) {
+                                            Text(job.title, color = Forest, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                                            Text("${job.governorate} • ${job.area} • ${job.category}", color = Color.DarkGray)
+                                            Spacer(Modifier.height(6.dp))
+                                            Text(if (job.wageIqd > 0) "${job.wageIqd} د.ع" else "الأجر حسب الاتفاق", color = Forest, fontWeight = FontWeight.Bold)
+                                            Text(job.workType, color = Color.Gray)
+                                            if (role == "worker") {
+                                                Button(onClick = {
+                                                    runTask { api.apply(job.id); message = "تم إرسال طلبك بنجاح" }
+                                                }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("قدّم على الوظيفة") }
                                             }
                                         }
-                                        Text(job.company + " • " + job.area, color = Color.DarkGray)
-                                        Spacer(Modifier.height(8.dp))
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            modifier = Modifier.fillMaxWidth()
-                                        ) {
-                                            Text(job.pay, color = Forest, fontWeight = FontWeight.Bold)
-                                            Surface(
-                                                color = Lime.copy(alpha = .45f),
-                                                shape = RoundedCornerShape(50)
-                                            ) {
-                                                Text(
-                                                    job.type,
-                                                    Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
-                                                    color = Forest
-                                                )
-                                            }
-                                        }
-                                        Spacer(Modifier.height(8.dp))
-                                        Text(
-                                            "إعلان تجريبي للعرض — التقديم غير متاح حالياً",
-                                            color = Color.Gray,
-                                            fontSize = 12.sp
-                                        )
                                     }
                                 }
                             }
+                            "نشر وظيفة" -> {
+                                item {
+                                    Text("انشر فرصة عمل", color = Forest, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                                    if (role != "employer") {
+                                        Text("هذه الخدمة مخصصة لحسابات أصحاب العمل.")
+                                    } else {
+                                        OutlinedTextField(title, { title = it }, Modifier.fillMaxWidth(), label = { Text("عنوان الوظيفة") })
+                                        OutlinedTextField(description, { description = it }, Modifier.fillMaxWidth(), label = { Text("تفاصيل الوظيفة") }, minLines = 3)
+                                        OutlinedTextField(category, { category = it }, Modifier.fillMaxWidth(), label = { Text("التصنيف") })
+                                        OutlinedTextField(area, { area = it }, Modifier.fillMaxWidth(), label = { Text("المنطقة داخل المحافظة") })
+                                        OutlinedTextField(wage, { wage = it.filter(Char::isDigit) }, Modifier.fillMaxWidth(), label = { Text("الأجر بالدينار العراقي") })
+                                        Button(
+                                            onClick = {
+                                                runTask {
+                                                    api.createJob(title, description, category, "كركوك", area, wage.toIntOrNull() ?: 0, "يومي")
+                                                    title = ""; description = ""; wage = ""
+                                                    message = "تم نشر الوظيفة بنجاح"
+                                                    tab = "الوظائف"; jobs = api.jobs()
+                                                }
+                                            },
+                                            enabled = !busy && title.length >= 3,
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) { Text("نشر الوظيفة") }
+                                    }
+                                }
+                            }
+                            else -> item {
+                                Text("حسابك في شَغلة", color = Forest, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                                Text("نوع الحساب: ${if (role == "worker") "باحث عن عمل" else "صاحب عمل"}")
+                                Text("رقم الهاتف: $phone")
+                                OutlinedButton(
+                                    onClick = {
+                                        token = ""; prefs.edit().remove("token").apply()
+                                        requested = false; otp = ""; jobs = emptyList()
+                                        message = "تم تسجيل الخروج"
+                                    },
+                                    modifier = Modifier.fillMaxWidth()
+                                ) { Text("تسجيل الخروج") }
+                            }
                         }
                     }
-
                     item {
                         Spacer(Modifier.height(20.dp))
-                        Text(
-                            "تنبيه أمان: لا تدفع أي مبلغ مقابل الحصول على وظيفة أو مقابلة.",
-                            color = Forest,
-                            fontWeight = FontWeight.Medium
-                        )
+                        Text("تنبيه أمان: لا تدفع أي مبلغ مقابل الحصول على وظيفة أو مقابلة.", color = Forest)
                         Spacer(Modifier.height(24.dp))
                     }
                 }
