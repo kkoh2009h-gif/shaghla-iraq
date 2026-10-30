@@ -11,6 +11,9 @@ jobs:
     defaults:
       run:
         working-directory: backend
+    env:
+      PYTHONPATH: ${{ github.workspace }}/backend
+      DATABASE_URL: sqlite:///./ci_test.db
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
