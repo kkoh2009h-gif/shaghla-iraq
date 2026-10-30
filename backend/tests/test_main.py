@@ -51,7 +51,7 @@ def test_health():
     response = client.get("/health")
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
-    assert response.json()["version"] == "0.3.0"
+    assert response.json()["version"] == "0.4.0"
 
 
 def test_iraqi_phone_normalization():
@@ -143,4 +143,51 @@ def test_employer_cannot_apply_as_worker():
 
 def test_unknown_job_returns_404():
     response = client.get("/jobs/999999")
+    assert response.status_code == 404
+
+
+
+def test_employer_can_review_applications_and_close_job():
+    employer_token = register("+9647700000011", "employer")
+    worker_token = register("+9647700000012", "worker")
+    job = create_job(employer_token, "مساعد إداري").json()
+    applied = client.post(f"/jobs/{job['id']}/apply", headers=auth(worker_token))
+    assert applied.status_code == 201
+    application_id = applied.json()["id"]
+
+    listing = client.get(
+        f"/employer/jobs/{job['id']}/applications",
+        headers=auth(employer_token),
+    )
+    assert listing.status_code == 200
+    assert len(listing.json()) == 1
+
+    changed = client.patch(
+        f"/employer/applications/{application_id}/status",
+        json={"status": "مقبول"},
+        headers=auth(employer_token),
+    )
+    assert changed.status_code == 200
+    assert changed.json()["status"] == "مقبول"
+
+    closed = client.patch(
+        f"/employer/jobs/{job['id']}/status?status=مغلقة",
+        headers=auth(employer_token),
+    )
+    assert closed.status_code == 200
+    assert closed.json()["status"] == "مغلقة"
+
+
+def test_other_employer_cannot_manage_application():
+    owner_token = register("+9647700000013", "employer")
+    other_token = register("+9647700000014", "employer")
+    worker_token = register("+9647700000015", "worker")
+    job = create_job(owner_token, "عامل إنتاج").json()
+    applied = client.post(f"/jobs/{job['id']}/apply", headers=auth(worker_token))
+    application_id = applied.json()["id"]
+    response = client.patch(
+        f"/employer/applications/{application_id}/status",
+        json={"status": "مرفوض"},
+        headers=auth(other_token),
+    )
     assert response.status_code == 404
