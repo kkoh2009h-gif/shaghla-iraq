@@ -46,3 +46,18 @@
 - ربط تطبيق Android بعنوان API منشور عبر HTTPS. GitHub Actions يبني APK ويشغّل الاختبارات، لكنه لا يستضيف API دائماً.
 
 هذه نسخة تطوير متقدمة وليست تصريحاً بأنها جاهزة للنشر التجاري.
+
+## تشغيل API مع PostgreSQL عبر Docker Compose
+
+من جذر المستودع، أنشئ متغيرات البيئة في الطرفية (لا تحفظ الأسرار في Git):
+
+```bash
+export POSTGRES_PASSWORD='ضع-كلمة-مرور-طويلة-هنا'
+export SHAGHLA_AUTH_SECRET="$(python -c 'import secrets; print(secrets.token_urlsafe(48))')"
+docker compose up --build -d
+docker compose logs -f api
+```
+
+بعد التشغيل، اختبر `http://localhost:8000/health` وافتح `http://localhost:8000/docs` للتطوير فقط. قبل تعريض الخادم للإنترنت، استخدم HTTPS عبر reverse proxy أو منصة استضافة، واضبط أسرار SMS من لوحة الاستضافة. لا تفتح منفذ PostgreSQL للعامة. خذ نسخاً احتياطية واختبر استعادتها.
+
+> ملاحظة: هذا إعداد تشغيل ذاتي الاستضافة، وليس نشرًا عامًا تلقائيًا. كما أن تهيئة PostgreSQL لا تنشئ ترحيلات Alembic بعد؛ يلزم إعداد migrations قبل تحديثات قاعدة البيانات الإنتاجية.
