@@ -193,42 +193,29 @@ def test_other_employer_cannot_manage_application():
     assert response.status_code == 404
 
 
-def test_employer_can_review_worker_application(monkeypatch):
-    _, employer_headers = register("employer", monkeypatch)
-    _, worker_headers = register("worker", monkeypatch)
-    job = client.post("/jobs", json=job_payload("فني كهرباء"), headers=employer_headers).json()
-    application = client.post(f"/jobs/{job['id']}/apply", headers=worker_headers).json()
-
-    inbox = client.get(f"/employer/jobs/{job['id']}/applications", headers=employer_headers)
-    assert inbox.status_code == 200
-    assert any(item["id"] == application["id"] for item in inbox.json())
-
-    reviewed = client.patch(
-        f"/employer/applications/{application['id']}",
-        json={"status": "مقبول"},
-        headers=employer_headers,
-    )
-    assert reviewed.status_code == 200
-    assert reviewed.json()["status"] == "مقبول"
 
 
-def test_employer_cannot_manage_another_employers_job(monkeypatch):
-    _, owner_headers = register("employer", monkeypatch)
-    _, other_headers = register("employer", monkeypatch)
-    job = client.post("/jobs", json=job_payload("عامل توصيل"), headers=owner_headers).json()
-    response = client.post(f"/employer/jobs/{job['id']}/close", headers=other_headers)
-    assert response.status_code == 404
-
-
-def test_worker_can_withdraw_application(monkeypatch):
-    _, employer_headers = register("employer", monkeypatch)
-    _, worker_headers = register("worker", monkeypatch)
-    job = client.post("/jobs", json=job_payload("عامل مطعم"), headers=employer_headers).json()
-    application = client.post(f"/jobs/{job['id']}/apply", headers=worker_headers).json()
-
+def test_worker_can_withdraw_application():
+    employer_token = register("+9647700000016", "employer")
+    worker_token = register("+9647700000017", "worker")
+    job = create_job(employer_token, "عامل مطعم").json()
+    application = client.post(f"/jobs/{job['id']}/apply", headers=auth(worker_token)).json()
     response = client.post(
         f"/worker/applications/{application['id']}/withdraw",
-        headers=worker_headers,
+        headers=auth(worker_token),
     )
     assert response.status_code == 200
     assert response.json()["status"] == "منسحب"
+
+
+def test_worker_cannot_withdraw_another_users_application():
+    employer_token = register("+9647700000018", "employer")
+    worker_token = register("+9647700000019", "worker")
+    other_worker_token = register("+9647700000020", "worker")
+    job = create_job(employer_token, "عامل توصيل").json()
+    application = client.post(f"/jobs/{job['id']}/apply", headers=auth(worker_token)).json()
+    response = client.post(
+        f"/worker/applications/{application['id']}/withdraw",
+        headers=auth(other_worker_token),
+    )
+    assert response.status_code == 404
