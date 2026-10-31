@@ -11,11 +11,18 @@
 
 ## إعدادات الخادم المطلوبة
 - `DATABASE_URL`: رابط قاعدة البيانات. SQLite للتطوير فقط، وPostgreSQL موصى به للإنتاج.
+- `GOOGLE_WEB_CLIENT_ID`: معرّف OAuth Web client المستخدم للتحقق من Google ID tokens.
 - `SHAGHLA_AUTH_SECRET`: مفتاح عشوائي طويل (32 بايت على الأقل) لتوقيع جلسات الدخول وتجزئة OTP. لا تضعه في GitHub أو التطبيق.
 - `SMS_GATEWAY_URL`: عنوان API لمزود رسائل SMS.
 - `SMS_GATEWAY_TOKEN`: رمز API الخاص بمزود الرسائل.
 
 بوابة الرسائل يجب أن تقبل طلب POST بصيغة JSON: `{"to":"+9647xxxxxxxxx","message":"..." }` مع ترويسة `Authorization: Bearer <token>`، وأن تعيد HTTP 2xx عند قبول الرسالة. هذا عقد تكامل عام؛ يجب تكييفه مع توثيق مزود الرسائل الفعلي. من دون إعداد SMS لن يصدر الخادم رمزاً تجريبياً ولن يعيده في الاستجابة.
+
+## تسجيل الدخول باستخدام Google
+- `POST /auth/google`: يستقبل Google ID token والدور `worker` أو `employer`.
+- يحقق الخادم من التوقيع والجمهور `GOOGLE_WEB_CLIENT_ID` ومن أن البريد موثّق قبل إصدار جلسة شَغلة.
+- لا ترسل Google ID token إلا عبر HTTPS، ولا تثق به قبل التحقق من الخادم.
+- أضف `GOOGLE_WEB_CLIENT_ID` إلى إعدادات بيئة الخادم من Web OAuth Client ID في Google Cloud.
 
 ## المصادقة والحسابات
 - `POST /auth/request-otp`: يطلب رمزاً لرقم عراقي ودور `worker` أو `employer`.
