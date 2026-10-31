@@ -4,6 +4,11 @@
 
 منصة عراقية تربط الباحثين عن عمل بأصحاب العمل. الانطلاقة من كركوك مع قابلية التوسع إلى جميع المحافظات.
 
+## تسجيل الدخول
+- التطبيق يستخدم تسجيل الدخول بحساب Google عبر Android Credential Manager.
+- الخادم يتحقق من Google ID token باستخدام Google Web OAuth Client ID قبل إنشاء جلسة شَغلة.
+- يلزم إعداد OAuth في Google Cloud: Android OAuth client للتطبيق `iq.shaghla.app` مع SHA-1 من GitHub Actions، وWeb OAuth client ID يوضع في `app/src/main/res/values/strings.xml` وبيئة الخادم باسم `GOOGLE_WEB_CLIENT_ID`.
+
 ## التقنية
 - Android: Kotlin + Jetpack Compose، واجهة عربية RTL.
 - Backend: FastAPI + SQLAlchemy.
