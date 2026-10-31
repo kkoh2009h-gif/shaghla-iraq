@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: shaghla-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: shaghla-db
+          property: connectionString
+      - key: SHAGHLA_AUTH_SECRET
+        generateValue: true
+      - key: GOOGLE_WEB_CLIENT_ID
+        value: 467973034864-umtl1mf987dohj5ul2b6k6sajga7kakp.apps.googleusercontent.com
+      - key: SMS_GATEWAY_URL
+        sync: false
+      - key: SMS_GATEWAY_TOKEN
+        sync: false
+
+databases:
+  - name: shaghla-db
+    plan: free
+    databaseName: shaghla
+    user: shaghla
