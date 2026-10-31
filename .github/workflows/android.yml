@@ -20,7 +20,10 @@ jobs:
       - name: Build debug APK
         run: gradle assembleDebug
       - name: Print APK signing SHA-1 for Google OAuth setup
-        run: keytool -printcert -jarfile app/build/outputs/apk/debug/app-debug.apk | grep -E "SHA1:|SHA-1:"
+        run: |
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n 1)
+          "$APKSIGNER" verify --print-certs "$APK" | grep "SHA-1"
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
