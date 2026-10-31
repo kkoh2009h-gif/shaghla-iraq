@@ -1,6 +1,12 @@
 package iq.shaghla.app
 
 import android.os.Bundle
+import android.app.Activity
+import androidx.credentials.CredentialManager
+import androidx.credentials.GetCredentialRequest
+import androidx.credentials.CustomCredential
+import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
+import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
@@ -38,8 +44,7 @@ fun ShaghlaApp() {
     var baseUrl by remember { mutableStateOf(prefs.getString("api_url", "") ?: "") }
     var token by remember { mutableStateOf(prefs.getString("token", "") ?: "") }
     var role by remember { mutableStateOf(prefs.getString("role", "worker") ?: "worker") }
-    var phone by remember { mutableStateOf(prefs.getString("phone", "") ?: "") }
-    var otp by remember { mutableStateOf("") }
+
     var query by remember { mutableStateOf("") }
     var tab by remember { mutableStateOf("الوظائف") }
     var requested by remember { mutableStateOf(false) }
@@ -108,17 +113,12 @@ fun ShaghlaApp() {
 
                     if (token.isBlank()) {
                         item {
-                            Text("خلّينا نوصلك بفرصة عمل", color = Forest, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                            Text("أدخل رابط خادم شَغلة المنشور عبر HTTPS.")
+                            Text("سجّل دخولك بحساب Google", color = Forest, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                            Text("اختر نوع حسابك، وبعدها سجّل الدخول بأمان باستخدام Google.")
                             OutlinedTextField(
                                 value = baseUrl, onValueChange = { baseUrl = it; prefs.edit().putString("api_url", it).apply() },
                                 modifier = Modifier.fillMaxWidth(), label = { Text("رابط API") },
-                                placeholder = { Text("https://api.example.com") }, singleLine = true
-                            )
-                            OutlinedTextField(
-                                value = phone, onValueChange = { phone = it },
-                                modifier = Modifier.fillMaxWidth(), label = { Text("رقم الهاتف العراقي") },
-                                placeholder = { Text("07xxxxxxxxx") }, singleLine = true
+                                placeholder = { Text("https://your-api.example.com") }, singleLine = true
                             )
                             Text("نوع الحساب", color = Forest, fontWeight = FontWeight.Bold)
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -126,41 +126,42 @@ fun ShaghlaApp() {
                                 Spacer(Modifier.width(8.dp))
                                 FilterChip(selected = role == "employer", onClick = { role = "employer" }, label = { Text("صاحب عمل") })
                             }
-                            if (!requested) {
-                                Button(
-                                    onClick = {
-                                        runTask {
-                                            api.requestOtp(phone, role)
-                                            requested = true
-                                            message = "إذا كان الرقم صحيحاً، راح توصلك رسالة برمز التحقق."
+                            Button(
+                                onClick = {
+                                    runTask {
+                                        val webClientId = context.getString(R.string.google_web_client_id).trim()
+                                        require(webClientId.isNotBlank()) {
+                                            "بعد نحتاج OAuth Web Client ID من Google Cloud حتى نفعّل تسجيل الدخول."
                                         }
-                                    },
-                                    enabled = !busy && baseUrl.isNotBlank() && phone.isNotBlank(),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) { Text("إرسال رمز التحقق") }
-                            } else {
-                                OutlinedTextField(
-                                    value = otp, onValueChange = { otp = it.filter(Char::isDigit).take(6) },
-                                    modifier = Modifier.fillMaxWidth(), label = { Text("رمز التحقق المكوّن من 6 أرقام") },
-                                    singleLine = true
-                                )
-                                Button(
-                                    onClick = {
-                                        runTask {
-                                            val result = api.verifyOtp(phone, otp)
-                                            token = result.first
-                                            prefs.edit().putString("token", token).putString("role", role).putString("phone", phone).apply()
-                                            requested = false
-                                            message = "تم تسجيل الدخول بنجاح"
-                                            jobs = api.jobs()
+                                        val option = GetSignInWithGoogleOption.Builder(
+                                            serverClientId = webClientId
+                                        ).build()
+                                        val request = GetCredentialRequest.Builder()
+                                            .addCredentialOption(option)
+                                            .build()
+                                        val activity = context as? Activity
+                                            ?: error("تعذر فتح تسجيل Google من هذا السياق")
+                                        val credentialResult = CredentialManager.create(context)
+                                            .getCredential(context = activity, request = request)
+                                        val credential = credentialResult.credential
+                                        require(credential is CustomCredential &&
+                                            credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
+                                            "Google ما رجّع بيانات تسجيل دخول صالحة."
                                         }
-                                    },
-                                    enabled = !busy && otp.length == 6,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) { Text("تأكيد وتسجيل الدخول") }
-                                TextButton(onClick = { requested = false; otp = "" }) { Text("تغيير الرقم") }
-                            }
-                            Text("ملاحظة: تسجيل الدخول يحتاج خادماً منشوراً ومزود SMS فعلياً.", color = Color.Gray, fontSize = 12.sp)
+                                        val googleCredential = GoogleIdTokenCredential.createFrom(credential.data)
+                                        val result = api.googleLogin(googleCredential.idToken, role)
+                                        token = result.first
+                                        prefs.edit().putString("token", token).putString("role", role)
+                                            .putString("email", result.second.optString("email"))
+                                            .putString("full_name", result.second.optString("full_name")).apply()
+                                        message = "تم تسجيل الدخول بحساب Google"
+                                        jobs = api.jobs()
+                                    }
+                                },
+                                enabled = !busy && baseUrl.startsWith("https://"),
+                                modifier = Modifier.fillMaxWidth()
+                            ) { Text("تسجيل الدخول باستخدام Google") }
+                            Text("ملاحظة: يلزم إعداد OAuth في Google Cloud وربط API منشور عبر HTTPS.", color = Color.Gray, fontSize = 12.sp)
                         }
                     } else {
                         when (tab) {
@@ -294,10 +295,10 @@ fun ShaghlaApp() {
                             else -> item {
                                 Text("حسابك في شَغلة", color = Forest, fontSize = 22.sp, fontWeight = FontWeight.Bold)
                                 Text("نوع الحساب: ${if (role == "worker") "باحث عن عمل" else "صاحب عمل"}")
-                                Text("رقم الهاتف: $phone")
+                                Text("حساب Google: ${prefs.getString("email", "") ?: ""}")
                                 OutlinedButton(
                                     onClick = {
-                                        token = ""; prefs.edit().remove("token").remove("phone").apply(); phone = ""
+                                        token = ""; prefs.edit().remove("token").remove("email").remove("full_name").apply()
                                         requested = false; otp = ""; jobs = emptyList()
                                         message = "تم تسجيل الخروج"
                                     },
