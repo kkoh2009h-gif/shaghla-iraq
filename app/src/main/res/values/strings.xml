@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">شَغلة</string>
+    <!-- Add the OAuth 2.0 Web client ID from Google Cloud Console here. -->
+    <string name="google_web_client_id" translatable="false"></string>
+</resources>
