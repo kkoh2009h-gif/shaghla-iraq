@@ -212,3 +212,12 @@ def test_protected_endpoint_requires_login():
 def test_unknown_job_returns_404():
     response = client.get("/jobs/99999999")
     assert response.status_code == 404
+
+
+def test_google_login_requires_oauth_client_id(monkeypatch):
+    monkeypatch.delenv("GOOGLE_WEB_CLIENT_ID", raising=False)
+    response = client.post(
+        "/auth/google",
+        json={"credential": "x" * 120, "role": "worker"},
+    )
+    assert response.status_code == 503
