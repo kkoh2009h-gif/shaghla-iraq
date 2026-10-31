@@ -299,7 +299,7 @@ fun ShaghlaApp() {
                                 OutlinedButton(
                                     onClick = {
                                         token = ""; prefs.edit().remove("token").remove("email").remove("full_name").apply()
-                                        requested = false; otp = ""; jobs = emptyList()
+                                        requested = false; jobs = emptyList()
                                         message = "تم تسجيل الخروج"
                                     },
                                     modifier = Modifier.fillMaxWidth()
