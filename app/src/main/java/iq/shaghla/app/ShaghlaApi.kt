@@ -53,6 +53,12 @@ class ShaghlaApi(private val baseUrl: String, private val token: String? = null)
             }
         }
 
+    suspend fun googleLogin(idToken: String, role: String): Pair<String, JSONObject> {
+        val json = JSONObject(request("/auth/google", "POST",
+            JSONObject().put("credential", idToken).put("role", role)))
+        return json.getString("access_token") to json.getJSONObject("user")
+    }
+
     suspend fun requestOtp(phone: String, role: String) {
         request("/auth/request-otp", "POST", JSONObject().put("phone", phone).put("role", role))
     }
