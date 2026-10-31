@@ -13,6 +13,8 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import create_engine, String, Integer, DateTime, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
+from google.oauth2 import id_token as google_id_token
+from google.auth.transport import requests as google_requests
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./shaghla.db")
 engine = create_engine(
@@ -34,7 +36,9 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    phone: Mapped[str] = mapped_column(String(16), unique=True, index=True)
+    phone: Mapped[str | None] = mapped_column(String(16), unique=True, index=True, nullable=True)
+    google_sub: Mapped[str | None] = mapped_column(String(128), unique=True, index=True, nullable=True)
+    email: Mapped[str | None] = mapped_column(String(254), index=True, nullable=True)
     role: Mapped[str] = mapped_column(String(20), index=True)
     full_name: Mapped[str] = mapped_column(String(120), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
@@ -87,6 +91,11 @@ app = FastAPI(
     version="0.4.0",
     description="واجهة API لمنصة شَغلة العراقية",
 )
+
+
+class GoogleLogin(BaseModel):
+    credential: str = Field(min_length=100, max_length=10000)
+    role: Literal["worker", "employer"]
 
 
 class OTPRequest(BaseModel):
@@ -178,7 +187,7 @@ def _current_user(authorization: str | None = Header(default=None)) -> dict:
         user = db.get(User, user_id)
         if not user:
             raise HTTPException(401, "الحساب غير موجود")
-        return {"id": user.id, "phone": user.phone, "role": user.role, "full_name": user.full_name}
+        return {"id": user.id, "phone": user.phone, "email": user.email, "role": user.role, "full_name": user.full_name}
 
 
 def require_role(role: str):
@@ -210,6 +219,47 @@ async def send_otp_sms(phone: str, code: str) -> None:
 @app.get("/health")
 def health():
     return {"status": "ok", "service": "shaghla-api", "version": app.version}
+
+
+@app.post("/auth/google")
+def google_login(data: GoogleLogin):
+    audience = os.getenv("GOOGLE_WEB_CLIENT_ID", "").strip()
+    if not audience:
+        raise HTTPException(503, "تسجيل Google غير مهيأ على الخادم")
+    try:
+        info = google_id_token.verify_oauth2_token(
+            data.credential, google_requests.Request(), audience
+        )
+    except Exception:
+        raise HTTPException(401, "تعذر التحقق من حساب Google")
+    google_sub = info.get("sub")
+    email = info.get("email")
+    if not google_sub or not email or not info.get("email_verified"):
+        raise HTTPException(401, "حساب Google غير مكتمل أو غير موثّق")
+    display_name = (info.get("name") or "").strip()[:120]
+    with Session() as db:
+        user = db.query(User).filter_by(google_sub=google_sub).first()
+        if user and user.role != data.role:
+            raise HTTPException(409, "هذا الحساب مسجل بنوع حساب آخر")
+        if not user:
+            user = User(google_sub=google_sub, email=email, role=data.role,
+                        full_name=display_name)
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+        else:
+            user.email = email
+            if display_name and not user.full_name:
+                user.full_name = display_name
+            db.commit()
+        token = _token_for(user)
+        return {
+            "access_token": token,
+            "token_type": "bearer",
+            "expires_in": 604800,
+            "user": {"id": user.id, "email": user.email, "role": user.role,
+                     "full_name": user.full_name},
+        }
 
 
 @app.post("/auth/request-otp")
@@ -292,7 +342,7 @@ def update_me(data: ProfileUpdate, user: dict = Depends(_current_user)):
         record = db.get(User, user["id"])
         record.full_name = data.full_name.strip()
         db.commit()
-        return {"id": record.id, "phone": record.phone, "role": record.role, "full_name": record.full_name}
+        return {"id": record.id, "phone": record.phone, "email": record.email, "role": record.role, "full_name": record.full_name}
 
 
 def job_dict(job: Job) -> dict:
